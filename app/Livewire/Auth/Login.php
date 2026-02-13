@@ -34,10 +34,12 @@ class Login extends Component implements HasForms
                     ->label('Email')
                     ->email()
                     ->required()
+                    ->default('admin@example.com')
                     ->autofocus(),
                 TextInput::make('password')
                     ->label('Password')
                     ->password()
+                    ->default('password')
                     ->revealable()
                     ->required(),
             ])

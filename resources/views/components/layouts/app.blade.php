@@ -28,6 +28,9 @@
                 </div>
                 <div class="flex items-center gap-4">
                     @auth
+                        <a href="{{ route('chat') }}" wire:navigate class="text-sm font-medium text-gray-700 hover:text-indigo-600 {{ request()->routeIs('chat') ? 'text-indigo-600' : '' }}">
+                            Chat
+                        </a>
                         <a href="{{ route('admin.dashboard') }}" wire:navigate class="text-sm font-medium text-gray-700 hover:text-indigo-600">
                             Dashboard
                         </a>

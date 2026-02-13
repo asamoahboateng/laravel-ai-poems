@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+@plugin '@tailwindcss/typography';
+
 @import '../../vendor/filament/support/resources/css/index.css';
 @import '../../vendor/filament/forms/resources/css/index.css';
 @import '../../vendor/filament/actions/resources/css/index.css';
