@@ -7,7 +7,7 @@
 
     <div class="mb-6">
         <h1 class="text-2xl font-bold text-gray-900">AI Models</h1>
-        <p class="mt-1 text-sm text-gray-500">Assign a provider and model for each AI capability.</p>
+        <p class="mt-1 text-sm text-gray-500">Assign a provider and model for each AI capability. Use the "Fetch Models" button on each section to load all available models from the provider's API.</p>
     </div>
 
     <form wire:submit="save">
@@ -19,4 +19,6 @@
             </button>
         </div>
     </form>
+
+    <x-filament-actions::modals />
 </div>

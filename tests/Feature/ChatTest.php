@@ -7,6 +7,7 @@ use App\Livewire\Chat;
 use App\Models\ChatConversation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -208,5 +209,34 @@ class ChatTest extends TestCase
         Livewire::test(Chat::class)
             ->set('selectedProvider', 'anthropic')
             ->assertSet('selectedModel', 'claude-sonnet-4-5-20250929');
+    }
+
+    public function test_cached_models_used_in_provider_change(): void
+    {
+        $this->actingAs($this->user);
+
+        Cache::put("provider_models.{$this->user->id}.openai", [
+            'gpt-4-turbo' => 'GPT-4 Turbo',
+            'gpt-4o' => 'gpt-4o',
+        ], now()->addDay());
+
+        Livewire::test(Chat::class)
+            ->set('selectedProvider', 'openai')
+            ->assertSet('selectedModel', 'gpt-4-turbo');
+    }
+
+    public function test_provider_labels_include_openrouter(): void
+    {
+        $labels = Chat::providerLabels();
+
+        $this->assertArrayHasKey('openrouter', $labels);
+        $this->assertEquals('OpenRouter', $labels['openrouter']);
+    }
+
+    public function test_provider_models_include_openrouter(): void
+    {
+        $models = Chat::providerModels();
+
+        $this->assertArrayHasKey('openrouter', $models);
     }
 }

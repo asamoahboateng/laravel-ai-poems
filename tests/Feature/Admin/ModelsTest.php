@@ -107,4 +107,23 @@ class ModelsTest extends TestCase
         $this->assertArrayHasKey('embeddings', $capabilities);
         $this->assertArrayHasKey('reranking', $capabilities);
     }
+
+    public function test_all_capabilities_include_lm_studio_and_ollama(): void
+    {
+        $capabilities = Models::capabilityModels();
+
+        foreach (['images', 'audio', 'transcription', 'embeddings', 'reranking'] as $capability) {
+            $this->assertArrayHasKey('ollama', $capabilities[$capability], "Missing ollama in {$capability}");
+            $this->assertArrayHasKey('lm_studio', $capabilities[$capability], "Missing lm_studio in {$capability}");
+            $this->assertArrayHasKey('openrouter', $capabilities[$capability], "Missing openrouter in {$capability}");
+        }
+    }
+
+    public function test_transcription_includes_groq(): void
+    {
+        $capabilities = Models::capabilityModels();
+
+        $this->assertArrayHasKey('groq', $capabilities['transcription']);
+        $this->assertArrayHasKey('whisper-large-v3', $capabilities['transcription']['groq']);
+    }
 }

@@ -4,8 +4,11 @@ namespace App\Livewire;
 
 use App\Ai\Agents\ChatAssistant;
 use App\Models\ChatConversation;
+use App\Services\ProviderModelFetcher;
+use Filament\Notifications\Notification;
 use Illuminate\Support\Collection;
 use Laravel\Ai\Streaming\Events\TextDelta;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -76,6 +79,9 @@ class Chat extends Component
             'lm_studio' => [
                 'default' => 'Default Model',
             ],
+            'openrouter' => [
+                'default' => 'Default Model',
+            ],
         ];
     }
 
@@ -94,7 +100,25 @@ class Chat extends Component
             'mistral' => 'Mistral',
             'ollama' => 'Ollama',
             'lm_studio' => 'LM Studio',
+            'openrouter' => 'OpenRouter',
         ];
+    }
+
+    /**
+     * Get models for the currently selected provider, using cached fetched models when available.
+     *
+     * @return array<string, string>
+     */
+    #[Computed]
+    public function currentModels(): array
+    {
+        $cached = ProviderModelFetcher::cached($this->selectedProvider, auth()->id());
+
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        return static::providerModels()[$this->selectedProvider] ?? [];
     }
 
     public function mount(): void
@@ -104,7 +128,7 @@ class Chat extends Component
         if ($settings?->default_provider) {
             $this->selectedProvider = $settings->default_provider;
             $this->selectedModel = $settings->default_model
-                ?? array_key_first(static::providerModels()[$settings->default_provider] ?? [])
+                ?? array_key_first($this->currentModels)
                 ?? $this->selectedModel;
         }
     }
@@ -123,7 +147,7 @@ class Chat extends Component
             'content' => $prompt,
         ];
 
-        $this->js('$wire.ask('.json_encode($prompt).')');
+        $this->js('$wire.ask(' . json_encode($prompt) . ')');
     }
 
     public function ask(string $prompt): void
@@ -131,61 +155,74 @@ class Chat extends Component
         $this->isStreaming = true;
         $this->streamedAnswer = '';
 
-        $this->applyUserAiSettings();
+        try {
+            $this->applyUserAiSettings();
 
-        $user = auth()->user();
-        $agent = ChatAssistant::make();
+            $user = auth()->user();
+            $agent = ChatAssistant::make();
 
-        $conversation = $this->conversationId
-            ? ChatConversation::where('user_id', $user->id)->find($this->conversationId)
-            : null;
+            $conversation = $this->conversationId
+                ? ChatConversation::where('user_id', $user->id)->find($this->conversationId)
+                : null;
 
-        if ($conversation && $conversation->agent_conversation_id) {
-            $agent->continue($conversation->agent_conversation_id, as: $user);
-        } else {
-            $agent->forUser($user);
-        }
-
-        $fullResponse = '';
-
-        $response = $agent->stream($prompt, provider: $this->selectedProvider, model: $this->selectedModel);
-
-        foreach ($response as $event) {
-            if ($event instanceof TextDelta) {
-                $fullResponse .= $event->delta;
-                $this->stream(to: 'answer', content: $event->delta);
+            if ($conversation && $conversation->agent_conversation_id) {
+                $agent->continue($conversation->agent_conversation_id, as: $user);
+            } else {
+                $agent->forUser($user);
             }
+
+            $fullResponse = '';
+
+            $response = $agent->stream($prompt, provider: $this->selectedProvider, model: $this->selectedModel);
+
+            foreach ($response as $event) {
+                if ($event instanceof TextDelta) {
+                    $fullResponse .= $event->delta;
+                    $this->stream(to: 'answer', content: $event->delta);
+                }
+            }
+
+            $agentConversationId = $agent->currentConversation();
+
+            if (! $conversation) {
+                $title = str($prompt)->limit(50)->toString();
+
+                $conversation = ChatConversation::create([
+                    'user_id' => $user->id,
+                    'agent_conversation_id' => $agentConversationId,
+                    'title' => $title,
+                    'provider' => $this->selectedProvider,
+                    'model' => $this->selectedModel,
+                ]);
+
+                $this->conversationId = $conversation->id;
+            } else {
+                $conversation->update([
+                    'agent_conversation_id' => $agentConversationId,
+                    'provider' => $this->selectedProvider,
+                    'model' => $this->selectedModel,
+                ]);
+            }
+
+            $this->messages[] = [
+                'role' => 'assistant',
+                'content' => $fullResponse,
+            ];
+        } catch (\Throwable $e) {
+            $this->messages[] = [
+                'role' => 'assistant',
+                'content' => '**Error:** Could not get a response. Please check your provider, model, and API key settings.',
+            ];
+
+            Notification::make()
+                ->title('AI request failed')
+                ->body(str($e->getMessage())->limit(200)->toString())
+                ->danger()
+                ->send();
+        } finally {
+            $this->streamedAnswer = '';
+            $this->isStreaming = false;
         }
-
-        $agentConversationId = $agent->currentConversation();
-
-        if (! $conversation) {
-            $title = str($prompt)->limit(50)->toString();
-
-            $conversation = ChatConversation::create([
-                'user_id' => $user->id,
-                'agent_conversation_id' => $agentConversationId,
-                'title' => $title,
-                'provider' => $this->selectedProvider,
-                'model' => $this->selectedModel,
-            ]);
-
-            $this->conversationId = $conversation->id;
-        } else {
-            $conversation->update([
-                'agent_conversation_id' => $agentConversationId,
-                'provider' => $this->selectedProvider,
-                'model' => $this->selectedModel,
-            ]);
-        }
-
-        $this->messages[] = [
-            'role' => 'assistant',
-            'content' => $fullResponse,
-        ];
-
-        $this->streamedAnswer = '';
-        $this->isStreaming = false;
     }
 
     public function newConversation(): void
@@ -218,7 +255,8 @@ class Chat extends Component
 
     public function updatedSelectedProvider(): void
     {
-        $models = static::providerModels()[$this->selectedProvider] ?? [];
+        unset($this->currentModels);
+        $models = $this->currentModels;
         $this->selectedModel = array_key_first($models) ?? '';
     }
 

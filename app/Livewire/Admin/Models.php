@@ -3,6 +3,10 @@
 namespace App\Livewire\Admin;
 
 use App\Livewire\Chat;
+use App\Services\ProviderModelFetcher;
+use Filament\Actions\Action;
+use Filament\Actions\Concerns\InteractsWithActions;
+use Filament\Actions\Contracts\HasActions;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -14,8 +18,9 @@ use Livewire\Attributes\Layout;
 use Livewire\Component;
 
 #[Layout('components.layouts.admin')]
-class Models extends Component implements HasForms
+class Models extends Component implements HasActions, HasForms
 {
+    use InteractsWithActions;
     use InteractsWithForms;
 
     public ?array $data = [];
@@ -38,6 +43,15 @@ class Models extends Component implements HasForms
                 'xai' => [
                     'grok-2-image' => 'Grok 2 Image',
                 ],
+                'ollama' => [
+                    'default' => 'Default Model',
+                ],
+                'lm_studio' => [
+                    'default' => 'Default Model',
+                ],
+                'openrouter' => [
+                    'default' => 'Default Model',
+                ],
             ],
             'audio' => [
                 'openai' => [
@@ -48,16 +62,38 @@ class Models extends Component implements HasForms
                     'eleven_multilingual_v2' => 'Multilingual v2',
                     'eleven_turbo_v2' => 'Turbo v2',
                 ],
+                'ollama' => [
+                    'default' => 'Default Model',
+                ],
+                'lm_studio' => [
+                    'default' => 'Default Model',
+                ],
+                'openrouter' => [
+                    'default' => 'Default Model',
+                ],
             ],
             'transcription' => [
                 'openai' => [
                     'whisper-1' => 'Whisper',
+                ],
+                'groq' => [
+                    'whisper-large-v3' => 'Whisper Large v3',
+                    'whisper-large-v3-turbo' => 'Whisper Large v3 Turbo',
                 ],
                 'mistral' => [
                     'mistral-large-latest' => 'Mistral Large',
                 ],
                 'eleven' => [
                     'scribe_v1' => 'Scribe v1',
+                ],
+                'ollama' => [
+                    'default' => 'Default Model',
+                ],
+                'lm_studio' => [
+                    'default' => 'Default Model',
+                ],
+                'openrouter' => [
+                    'default' => 'Default Model',
                 ],
             ],
             'embeddings' => [
@@ -78,11 +114,26 @@ class Models extends Component implements HasForms
                     'embed-english-v3.0' => 'Embed English v3',
                     'embed-multilingual-v3.0' => 'Embed Multilingual v3',
                 ],
+                'lm_studio' => [
+                    'default' => 'Default Model',
+                ],
+                'openrouter' => [
+                    'default' => 'Default Model',
+                ],
             ],
             'reranking' => [
                 'cohere' => [
                     'rerank-english-v3.0' => 'Rerank English v3',
                     'rerank-multilingual-v3.0' => 'Rerank Multilingual v3',
+                ],
+                'ollama' => [
+                    'default' => 'Default Model',
+                ],
+                'lm_studio' => [
+                    'default' => 'Default Model',
+                ],
+                'openrouter' => [
+                    'default' => 'Default Model',
                 ],
             ],
         ];
@@ -111,6 +162,7 @@ class Models extends Component implements HasForms
         return array_merge(Chat::providerLabels(), [
             'eleven' => 'ElevenLabs',
             'cohere' => 'Cohere',
+            'openrouter' => 'OpenRouter',
         ]);
     }
 
@@ -168,9 +220,13 @@ class Models extends Component implements HasForms
                                 return [];
                             }
 
-                            return static::capabilityModels()[$capability][$provider] ?? [];
+                            return $this->getModelsForProvider($capability, $provider);
                         })
-                        ->placeholder('— Select model —'),
+                        ->placeholder('— Select model —')
+                        ->searchable(),
+                ])
+                ->headerActions([
+                    $this->makeFetchAction($capability, $providerField),
                 ])
                 ->columns(2);
         }
@@ -178,6 +234,57 @@ class Models extends Component implements HasForms
         return $form
             ->schema($sections)
             ->statePath('data');
+    }
+
+    public function fetchModels(string $capability, string $providerField): void
+    {
+        $provider = $this->data[$providerField] ?? null;
+
+        if (! $provider) {
+            Notification::make()
+                ->title('Please select a provider first.')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        if (! ProviderModelFetcher::supports($provider)) {
+            Notification::make()
+                ->title("Model fetching is not supported for this provider.")
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $settings = auth()->user()->aiSetting;
+
+        if (! $settings) {
+            Notification::make()
+                ->title('Please configure your API keys in AI Settings first.')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        try {
+            $fetcher = new ProviderModelFetcher;
+            $models = $fetcher->fetchAndCache($provider, $settings, auth()->id());
+
+            Notification::make()
+                ->title('Models fetched successfully!')
+                ->body(count($models) . ' models found for ' . (static::allProviderLabels()[$provider] ?? $provider) . '.')
+                ->success()
+                ->send();
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title('Failed to fetch models')
+                ->body(str($e->getMessage())->limit(200)->toString())
+                ->danger()
+                ->send();
+        }
     }
 
     public function save(): void
@@ -198,5 +305,31 @@ class Models extends Component implements HasForms
     public function render()
     {
         return view('livewire.admin.models');
+    }
+
+    /**
+     * Get model options for a provider, using cached fetched models when available.
+     *
+     * @return array<string, string>
+     */
+    protected function getModelsForProvider(string $capability, string $provider): array
+    {
+        $cached = ProviderModelFetcher::cached($provider, auth()->id());
+
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        return static::capabilityModels()[$capability][$provider] ?? [];
+    }
+
+    protected function makeFetchAction(string $capability, string $providerField): Action
+    {
+        return Action::make("fetch_{$capability}")
+            ->label('Fetch Models')
+            ->icon('heroicon-o-arrow-down-tray')
+            ->color('gray')
+            ->size('sm')
+            ->action(fn () => $this->fetchModels($capability, $providerField));
     }
 }

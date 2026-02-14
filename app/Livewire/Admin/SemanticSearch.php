@@ -3,6 +3,7 @@
 namespace App\Livewire\Admin;
 
 use App\Models\PoemEmbedding;
+use Filament\Notifications\Notification;
 use Laravel\Ai\Embeddings;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -30,39 +31,54 @@ class SemanticSearch extends Component
 
         $this->applyUserAiSettings();
 
-        $response = Embeddings::for([$this->query])->generate();
-        $queryEmbedding = $response->first();
+        try {
+            $settings = auth()->user()->aiSetting;
+            $provider = $settings?->default_for_embeddings;
+            $model = $settings?->default_model_for_embeddings;
 
-        $poemEmbeddings = PoemEmbedding::with(['poem.genre', 'poem.subject'])->get();
+            $response = Embeddings::for([$this->query])->generate($provider, $model);
+            $queryEmbedding = $response->first();
 
-        $scored = [];
+            $poemEmbeddings = PoemEmbedding::with(['poem.genre', 'poem.subject'])->get();
 
-        foreach ($poemEmbeddings as $poemEmbedding) {
-            if (! $poemEmbedding->poem) {
-                continue;
+            $scored = [];
+
+            foreach ($poemEmbeddings as $poemEmbedding) {
+                if (! $poemEmbedding->poem) {
+                    continue;
+                }
+
+                $similarity = $this->cosineSimilarity($queryEmbedding, $poemEmbedding->embedding);
+
+                $scored[] = [
+                    'poem' => [
+                        'id' => $poemEmbedding->poem->id,
+                        'title' => $poemEmbedding->poem->title,
+                        'slug' => $poemEmbedding->poem->slug,
+                        'author' => $poemEmbedding->poem->author,
+                        'content' => str($poemEmbedding->poem->content)->limit(200)->toString(),
+                        'genre' => $poemEmbedding->poem->genre?->name,
+                        'subject' => $poemEmbedding->poem->subject?->name,
+                    ],
+                    'similarity' => round($similarity * 100, 1),
+                ];
             }
 
-            $similarity = $this->cosineSimilarity($queryEmbedding, $poemEmbedding->embedding);
+            usort($scored, fn (array $a, array $b) => $b['similarity'] <=> $a['similarity']);
 
-            $scored[] = [
-                'poem' => [
-                    'id' => $poemEmbedding->poem->id,
-                    'title' => $poemEmbedding->poem->title,
-                    'slug' => $poemEmbedding->poem->slug,
-                    'author' => $poemEmbedding->poem->author,
-                    'content' => str($poemEmbedding->poem->content)->limit(200)->toString(),
-                    'genre' => $poemEmbedding->poem->genre?->name,
-                    'subject' => $poemEmbedding->poem->subject?->name,
-                ],
-                'similarity' => round($similarity * 100, 1),
-            ];
+            $this->results = array_slice($scored, 0, 10);
+            $this->hasSearched = true;
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title('Search failed')
+                ->body(str($e->getMessage())->limit(200)->toString())
+                ->danger()
+                ->send();
+
+            $this->hasSearched = false;
+        } finally {
+            $this->isSearching = false;
         }
-
-        usort($scored, fn (array $a, array $b) => $b['similarity'] <=> $a['similarity']);
-
-        $this->results = array_slice($scored, 0, 10);
-        $this->isSearching = false;
-        $this->hasSearched = true;
     }
 
     public function render()

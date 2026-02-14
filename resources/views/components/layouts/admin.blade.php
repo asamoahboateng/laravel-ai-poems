@@ -108,7 +108,7 @@
 
     @filamentScripts
     @vite('resources/js/app.js')
-
+    @livewire('notifications')
     <script>
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('-translate-x-full');
