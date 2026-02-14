@@ -25,11 +25,17 @@ class UserAiSetting extends Model
         'lm_studio_key',
         'lm_studio_url',
         'default_provider',
+        'default_model',
         'default_for_images',
+        'default_model_for_images',
         'default_for_audio',
+        'default_model_for_audio',
         'default_for_transcription',
+        'default_model_for_transcription',
         'default_for_embeddings',
+        'default_model_for_embeddings',
         'default_for_reranking',
+        'default_model_for_reranking',
         'cache_embeddings',
     ];
 

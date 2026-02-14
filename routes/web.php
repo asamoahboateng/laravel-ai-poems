@@ -24,13 +24,14 @@ Route::post('/logout', function () {
     return redirect()->route('home');
 })->middleware('auth')->name('logout');
 
-Route::get('/chat', Chat::class)->middleware('auth')->name('chat');
-
 Route::prefix('admin')->middleware('auth')->name('admin.')->group(function () {
     Route::get('/', Admin\Dashboard::class)->name('dashboard');
 
     Route::get('/poems', Admin\Poems\Index::class)->name('poems.index');
     Route::get('/genres', Admin\Genres\Index::class)->name('genres.index');
     Route::get('/subjects', Admin\Subjects\Index::class)->name('subjects.index');
+    Route::get('/models', Admin\Models::class)->name('models');
     Route::get('/ai-settings', Admin\AiSettings::class)->name('ai-settings');
+    Route::get('/semantic-search', Admin\SemanticSearch::class)->name('semantic-search');
+    Route::get('/chat', Chat::class)->name('chat');
 });

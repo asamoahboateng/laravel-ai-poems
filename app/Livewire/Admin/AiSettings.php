@@ -2,8 +2,10 @@
 
 namespace App\Livewire\Admin;
 
-use App\Livewire\Chat;
-use Filament\Forms\Components\Select;
+use App\Ai\Agents\ChatAssistant;
+use Filament\Actions\Action;
+use Filament\Actions\Concerns\InteractsWithActions;
+use Filament\Actions\Contracts\HasActions;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -15,11 +17,27 @@ use Livewire\Attributes\Layout;
 use Livewire\Component;
 
 #[Layout('components.layouts.admin')]
-class AiSettings extends Component implements HasForms
+class AiSettings extends Component implements HasActions, HasForms
 {
+    use InteractsWithActions;
     use InteractsWithForms;
 
     public ?array $data = [];
+
+    /**
+     * @var array<string, string>
+     */
+    protected static array $testModels = [
+        'openai' => 'gpt-4o-mini',
+        'anthropic' => 'claude-haiku-4-5-20251001',
+        'gemini' => 'gemini-2.0-flash-lite',
+        'groq' => 'llama-3.1-8b-instant',
+        'xai' => 'grok-3-mini',
+        'deepseek' => 'deepseek-chat',
+        'mistral' => 'mistral-small-latest',
+        'ollama' => 'llama3.2',
+        'lm_studio' => 'default',
+    ];
 
     public function mount(): void
     {
@@ -37,48 +55,20 @@ class AiSettings extends Component implements HasForms
             'ollama_url',
             'lm_studio_key',
             'lm_studio_url',
-            'default_provider',
-            'default_for_images',
-            'default_for_audio',
-            'default_for_transcription',
-            'default_for_embeddings',
-            'default_for_reranking',
             'cache_embeddings',
         ]) ?? []);
     }
 
     public function form(Schema $form): Schema
     {
-        $providerOptions = array_merge(['' => '— Use .env default —'], Chat::providerLabels());
-
         return $form
             ->schema([
-                Section::make('Default Providers')
-                    ->description('Choose which provider to use by default for each AI operation. Leave blank to use the .env configuration.')
+                Section::make('Caching')
                     ->schema([
-                        Select::make('default_provider')
-                            ->label('Default Provider')
-                            ->options($providerOptions),
-                        Select::make('default_for_images')
-                            ->label('Default for Images')
-                            ->options($providerOptions),
-                        Select::make('default_for_audio')
-                            ->label('Default for Audio')
-                            ->options($providerOptions),
-                        Select::make('default_for_transcription')
-                            ->label('Default for Transcription')
-                            ->options($providerOptions),
-                        Select::make('default_for_embeddings')
-                            ->label('Default for Embeddings')
-                            ->options($providerOptions),
-                        Select::make('default_for_reranking')
-                            ->label('Default for Reranking')
-                            ->options($providerOptions),
                         Toggle::make('cache_embeddings')
                             ->label('Cache Embeddings')
                             ->helperText('Cache embedding results to reduce API calls.'),
-                    ])
-                    ->columns(2),
+                    ]),
 
                 Section::make('OpenAI')
                     ->schema([
@@ -87,6 +77,9 @@ class AiSettings extends Component implements HasForms
                             ->password()
                             ->revealable()
                             ->placeholder('sk-...'),
+                    ])
+                    ->headerActions([
+                        $this->makeTestAction('openai'),
                     ])
                     ->collapsible(),
 
@@ -98,6 +91,9 @@ class AiSettings extends Component implements HasForms
                             ->revealable()
                             ->placeholder('sk-ant-...'),
                     ])
+                    ->headerActions([
+                        $this->makeTestAction('anthropic'),
+                    ])
                     ->collapsible(),
 
                 Section::make('Google Gemini')
@@ -107,6 +103,9 @@ class AiSettings extends Component implements HasForms
                             ->password()
                             ->revealable()
                             ->placeholder('AI...'),
+                    ])
+                    ->headerActions([
+                        $this->makeTestAction('gemini'),
                     ])
                     ->collapsible(),
 
@@ -118,6 +117,9 @@ class AiSettings extends Component implements HasForms
                             ->revealable()
                             ->placeholder('gsk_...'),
                     ])
+                    ->headerActions([
+                        $this->makeTestAction('groq'),
+                    ])
                     ->collapsible(),
 
                 Section::make('xAI')
@@ -128,6 +130,9 @@ class AiSettings extends Component implements HasForms
                             ->revealable()
                             ->placeholder('xai-...'),
                     ])
+                    ->headerActions([
+                        $this->makeTestAction('xai'),
+                    ])
                     ->collapsible(),
 
                 Section::make('DeepSeek')
@@ -137,6 +142,9 @@ class AiSettings extends Component implements HasForms
                             ->password()
                             ->revealable(),
                     ])
+                    ->headerActions([
+                        $this->makeTestAction('deepseek'),
+                    ])
                     ->collapsible(),
 
                 Section::make('Mistral')
@@ -145,6 +153,9 @@ class AiSettings extends Component implements HasForms
                             ->label('API Key')
                             ->password()
                             ->revealable(),
+                    ])
+                    ->headerActions([
+                        $this->makeTestAction('mistral'),
                     ])
                     ->collapsible(),
 
@@ -160,6 +171,9 @@ class AiSettings extends Component implements HasForms
                             ->placeholder('http://localhost:11434')
                             ->url(),
                     ])
+                    ->headerActions([
+                        $this->makeTestAction('ollama'),
+                    ])
                     ->columns(2)
                     ->collapsible(),
 
@@ -174,6 +188,9 @@ class AiSettings extends Component implements HasForms
                             ->label('Base URL')
                             ->placeholder('http://localhost:1234/v1')
                             ->url(),
+                    ])
+                    ->headerActions([
+                        $this->makeTestAction('lm_studio'),
                     ])
                     ->columns(2)
                     ->collapsible(),
@@ -196,8 +213,67 @@ class AiSettings extends Component implements HasForms
             ->send();
     }
 
+    public function testConnection(string $provider, string $model): void
+    {
+        $this->save();
+
+        $settings = auth()->user()->fresh()->aiSetting;
+
+        if ($settings) {
+            $keyMap = [
+                'openai_key' => 'ai.providers.openai.key',
+                'anthropic_key' => 'ai.providers.anthropic.key',
+                'gemini_key' => 'ai.providers.gemini.key',
+                'groq_key' => 'ai.providers.groq.key',
+                'xai_key' => 'ai.providers.xai.key',
+                'deepseek_key' => 'ai.providers.deepseek.key',
+                'mistral_key' => 'ai.providers.mistral.key',
+                'ollama_key' => 'ai.providers.ollama.key',
+                'ollama_url' => 'ai.providers.ollama.url',
+                'lm_studio_key' => 'ai.providers.lm_studio.key',
+                'lm_studio_url' => 'ai.providers.lm_studio.url',
+            ];
+
+            foreach ($keyMap as $settingField => $configKey) {
+                if ($settings->$settingField) {
+                    config([$configKey => $settings->$settingField]);
+                }
+            }
+        }
+
+        try {
+            $agent = ChatAssistant::make();
+            $agent->forUser(auth()->user());
+            $response = $agent->prompt('Say "Connection successful" in one short sentence.', provider: $provider, model: $model);
+
+            Notification::make()
+                ->title('Connection successful!')
+                ->body(str($response->text)->limit(100)->toString())
+                ->success()
+                ->send();
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title('Connection failed')
+                ->body(str($e->getMessage())->limit(200)->toString())
+                ->danger()
+                ->send();
+        }
+    }
+
     public function render()
     {
         return view('livewire.admin.ai-settings');
+    }
+
+    protected function makeTestAction(string $provider): Action
+    {
+        $model = static::$testModels[$provider];
+
+        return Action::make("test_{$provider}")
+            ->label('Test')
+            ->icon('heroicon-o-signal')
+            ->color('gray')
+            ->size('sm')
+            ->action(fn () => $this->testConnection($provider, $model));
     }
 }

@@ -9,7 +9,7 @@ use Laravel\Ai\Streaming\Events\TextDelta;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
-#[Layout('components.layouts.chat')]
+#[Layout('components.layouts.admin')]
 class Chat extends Component
 {
     public ?int $conversationId = null;
@@ -99,7 +99,14 @@ class Chat extends Component
 
     public function mount(): void
     {
-        //
+        $settings = auth()->user()->aiSetting;
+
+        if ($settings?->default_provider) {
+            $this->selectedProvider = $settings->default_provider;
+            $this->selectedModel = $settings->default_model
+                ?? array_key_first(static::providerModels()[$settings->default_provider] ?? [])
+                ?? $this->selectedModel;
+        }
     }
 
     public function sendMessage(): void

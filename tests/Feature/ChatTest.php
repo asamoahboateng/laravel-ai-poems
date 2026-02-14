@@ -24,7 +24,7 @@ class ChatTest extends TestCase
 
     public function test_chat_requires_authentication(): void
     {
-        $this->get(route('chat'))
+        $this->get(route('admin.chat'))
             ->assertRedirect(route('login'));
     }
 

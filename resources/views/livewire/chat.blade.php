@@ -1,4 +1,4 @@
-<div class="flex h-full" x-data="{ sidebarOpen: true }">
+<div class="-m-6 flex h-[calc(100vh-4rem)]" x-data="{ sidebarOpen: true }">
     {{-- Left sidebar --}}
     <aside
         x-show="sidebarOpen"
